@@ -1,0 +1,13 @@
+# Binaries
+/lidspeculum
+/lidspeculum.exe
+/dist/
+/build/
+
+# Go
+*.test
+*.out
+coverage.*
+
+# OS cruft
+.DS_Store

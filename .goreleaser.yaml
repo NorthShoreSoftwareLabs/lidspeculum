@@ -1,0 +1,70 @@
+# GoReleaser config for lidspeculum.
+# Docs: https://goreleaser.com
+#
+# A tag push (vX.Y.Z) triggers .github/workflows/release.yml, which runs this
+# to build cross-platform binaries, publish a GitHub Release, and update the
+# Homebrew tap and Scoop bucket.
+#
+# Cross-repo publishing (tap + bucket) needs a PAT with `repo` scope on
+# NorthShoreSoftwareLabs/homebrew-tap and NorthShoreSoftwareLabs/scoop-bucket, stored as the repo secret
+# HOMEBREW_TAP_TOKEN. See RELEASING.md.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: lidspeculum
+    binary: lidspeculum
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - name: lidspeculum
+    repository:
+      owner: NorthShoreSoftwareLabs
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/NorthShoreSoftwareLabs/lidspeculum"
+    description: "Keep your computer awake when the lid is closed"
+    license: "MIT"
+    test: |
+      system "#{bin}/lidspeculum", "version"
+
+scoops:
+  - repository:
+      owner: NorthShoreSoftwareLabs
+      name: scoop-bucket
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/NorthShoreSoftwareLabs/lidspeculum"
+    description: "Keep your computer awake when the lid is closed"
+    license: MIT
+
+release:
+  github:
+    owner: NorthShoreSoftwareLabs
+    name: lidspeculum
