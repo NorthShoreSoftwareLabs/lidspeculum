@@ -2,8 +2,15 @@
 
 Releases are automated with [GoReleaser](https://goreleaser.com) via
 `.github/workflows/release.yml`. Pushing a `vX.Y.Z` tag builds cross-platform
-binaries, publishes a GitHub Release, and updates the Homebrew tap and Scoop
-bucket so `brew install` / `scoop install` pick up the new version.
+binaries, publishes a GitHub Release, and updates the Scoop bucket so
+`scoop install` picks up the new version.
+
+The Homebrew formula is maintained by hand in `NorthShoreSoftwareLabs/homebrew-tap`
+(GoReleaser's `brews` is deprecated in favor of macOS-only casks, which would
+drop Linux). After a release, update `Formula/lidspeculum.rb` to point at the new
+tag's `darwin`/`linux` archives and their sha256 from the release `checksums.txt`.
+A cross-platform formula downloads the prebuilt binary per OS/arch (on_macos /
+on_linux, on_arm / on_intel) and installs `bin.install "lidspeculum"`.
 
 ## One-time setup
 

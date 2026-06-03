@@ -79,12 +79,30 @@ automatically when the hold process exits.
 
 - Running with the lid shut and no external display restricts airflow. Watch
   temperatures on long, heavy jobs.
+- **Linux desktops (GNOME, KDE):** some desktop environments handle the lid
+  switch themselves instead of leaving it to logind. The `systemd-inhibit` lock
+  covers the logind path; if your machine still sleeps on lid close, your DE is
+  handling it. `lidspeculum` prints a warning when it can't confirm the lock was
+  taken. The lock is verified to work where logind owns the lid (servers,
+  headless boxes, and DEs that defer to logind).
+- **Windows must be English-language for now.** The prior lid setting is read by
+  parsing `powercfg` output, whose labels are localized. On a non-English
+  install `lidspeculum` refuses to engage rather than risk changing your setting
+  blindly. (It fails safe; it does not corrupt anything.)
 - On macOS/Windows the setting is a system flag. If a hold is killed in a way
   that skips cleanup, `lidspeculum stop` restores normal sleep and `status`
   flags the stranded state.
 - Windows `stop`: because a SIGTERM can't be delivered to an unrelated process
   the way it can on unix, `stop` restores the saved power setting and clears the
   pidfile directly; the orphaned holder exits on its own deadline.
+
+## Status
+
+The Linux path is validated end to end against a real `systemd-logind`
+(inhibitor lock taken, `run` exit-code passthrough, timed self-release,
+single-hold enforcement, signal cleanup). macOS and Windows build, vet, and
+test on their native CI runners; the privileged macOS/Windows runtime paths
+still want a pass on real hardware. Pre-`v0.1.0`.
 
 ## License
 

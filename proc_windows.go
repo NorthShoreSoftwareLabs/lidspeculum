@@ -24,6 +24,7 @@ var (
 )
 
 const (
+	synchronize             = 0x00100000 // SYNCHRONIZE: required by WaitForSingleObject
 	processQueryLimitedInfo = 0x1000     // PROCESS_QUERY_LIMITED_INFORMATION
 	stillActive             = 259        // STILL_ACTIVE
 	waitObject0             = 0          // WAIT_OBJECT_0: handle signaled (process exited)
@@ -34,15 +35,21 @@ const (
 //
 // GetExitCodeProcess returns STILL_ACTIVE (259) for a live process, but ALSO
 // for a process that genuinely exited with code 259, so it can't be trusted
-// alone. We first wait on the process handle with a zero timeout: WAIT_OBJECT_0
-// means the process object is signaled (already exited) regardless of its exit
-// code, so we treat it as dead. Only when the wait times out AND the exit code
-// is STILL_ACTIVE do we report the process as alive.
+// alone. We first wait on the process handle with a zero timeout, which is why
+// the handle is opened with SYNCHRONIZE (without it WaitForSingleObject returns
+// WAIT_FAILED and we would misreport a live process as dead):
+//
+//   - WAIT_OBJECT_0 (0): the process object is signaled (already exited)
+//     regardless of its exit code => dead.
+//   - WAIT_TIMEOUT (0x102) + GetExitCodeProcess == STILL_ACTIVE => alive.
+//   - WAIT_FAILED (or any other result): the wait is unreliable, so fall back
+//     conservatively to GetExitCodeProcess alone (alive only if STILL_ACTIVE,
+//     else dead) rather than misreporting.
 func processAlive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	h, _, _ := procOpenProcess.Call(uintptr(processQueryLimitedInfo), 0, uintptr(pid))
+	h, _, _ := procOpenProcess.Call(uintptr(synchronize|processQueryLimitedInfo), 0, uintptr(pid))
 	if h == 0 {
 		return false
 	}
@@ -59,7 +66,13 @@ func processAlive(pid int) bool {
 	if r == 0 {
 		return false
 	}
-	return w == waitTimeout && code == stillActive
+	if w == waitTimeout {
+		return code == stillActive
+	}
+	// WAIT_FAILED (0xFFFFFFFF) or any unexpected result: the wait can't be
+	// trusted. Fall back to the exit code alone, treating the process as alive
+	// only if it reports STILL_ACTIVE.
+	return code == stillActive
 }
 
 // stopHolder makes the machine sleepable again on Windows.

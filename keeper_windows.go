@@ -55,6 +55,10 @@ func announceElevation(quiet bool) {
 	}
 }
 
+// confirmKeeper is a no-op on Windows: the lid-close action is a directly-read
+// powercfg index, so there is nothing to confirm after the fact.
+func confirmKeeper(quiet bool) {}
+
 func powercfg(args ...string) error {
 	c := exec.Command("powercfg", args...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr

@@ -31,12 +31,11 @@ func acquire(h *hold) error {
 		return rerr
 	}
 	if rerr == nil && existing != nil && processAlive(existing.PID) {
-		exp := "no deadline"
+		detail := fmt.Sprintf("pid %d", existing.PID)
 		if existing.ExpiresAt > 0 {
-			exp = time.Unix(existing.ExpiresAt, 0).Format("15:04")
+			detail += ", expires " + time.Unix(existing.ExpiresAt, 0).Format("15:04")
 		}
-		return fmt.Errorf("%w (pid %d, expires %s); run `lidspeculum stop` to end it",
-			errHoldActive, existing.PID, exp)
+		return fmt.Errorf("%w (%s); run `lidspeculum stop` to end it", errHoldActive, detail)
 	}
 
 	// Stale or corrupt: reclaim. Clear any stranded OS flag, drop the pidfile,
@@ -68,12 +67,33 @@ var releaseOnce sync.Once
 // release disengages the OS lever and removes the pidfile. It is safe to call
 // more than once (subsequent calls are no-ops via releaseOnce).
 //
+// Ownership guard: before touching anything, we check that THIS process still
+// owns the hold. A superseded holder (its pidfile was removed by `stop` and a
+// newer holder B then engaged and wrote B's pidfile) must NOT disengage the
+// lever B owns nor delete B's pidfile. So:
+//   - no pidfile, or pidfile.PID == our pid: this is our clean release —
+//     disengage(), and on success remove the pidfile (if absent, the disengage
+//     is just idempotent).
+//   - pidfile.PID != our pid: we've been superseded — leave the lever and the
+//     pidfile alone and return.
+//
 // Invariant: the pidfile is present whenever the OS flag might still be set. So
-// if disengage() fails (the flag may still be set), we deliberately KEEP the
-// pidfile, leaving a later `stop`/`status` able to find and recover the holder.
-// Only once the flag is confirmed restored do we remove the pidfile.
+// in the owned-release branch, if disengage() fails (the flag may still be set),
+// we deliberately KEEP the pidfile, leaving a later `stop`/`status` able to find
+// and recover the holder. Only once the flag is confirmed restored do we remove
+// the pidfile.
 func release(quiet bool) {
 	releaseOnce.Do(func() {
+		// A corrupt pidfile is treated as "not clearly ours"; the conservative
+		// read below (cur == nil only on a clean absent file) keeps us from
+		// stomping a record we can't parse.
+		cur, _ := readHold()
+		if cur != nil && cur.PID != os.Getpid() {
+			// Superseded by another holder: do not disengage its lever or remove
+			// its pidfile.
+			return
+		}
+
 		if err := disengage(); err != nil {
 			fmt.Fprintln(os.Stderr, "lidspeculum: restore failed:", err)
 			// Keep the pidfile so the stranded flag stays recoverable.
@@ -161,6 +181,10 @@ func cmdHold(forStr, untilStr string, quiet bool) int {
 		fmt.Fprintln(os.Stderr, holdStartLine(now, expires, untilStr != ""))
 	}
 
+	// Best-effort confirmation that the keeper actually took hold (Linux only;
+	// no-op elsewhere). Never fails the hold.
+	confirmKeeper(quiet)
+
 	return residentWait(expires, quiet)
 }
 
@@ -207,6 +231,10 @@ func cmdRun(cmd []string, quiet bool) int {
 	if !quiet {
 		fmt.Fprintf(os.Stderr, "lidspeculum: holding awake while %q runs.\n", h.Command)
 	}
+
+	// Best-effort confirmation that the keeper actually took hold (Linux only;
+	// no-op elsewhere). Never fails the hold.
+	confirmKeeper(quiet)
 
 	return runWrapped(cmd, quiet)
 }

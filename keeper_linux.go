@@ -99,6 +99,21 @@ func announceElevation(quiet bool) {}
 func engage() error    { return nil }
 func disengage() error { return nil }
 
+// confirmKeeper does a best-effort check, once a hold has engaged, that the
+// inhibitor lock is actually held. It greps `systemd-inhibit --list` (via
+// rawFlagActive) for our who=lidspeculum row; if that row is absent it prints a
+// single warning to stderr. It NEVER fails or exits: the --list parse can lag or
+// vary by systemd version, so a false negative must not break a working hold.
+// Skipped under -q.
+func confirmKeeper(quiet bool) {
+	if quiet {
+		return
+	}
+	if !rawFlagActive() {
+		os.Stderr.WriteString("lidspeculum: warning: couldn't confirm the lid inhibitor is active; if your laptop still sleeps on lid close, your desktop environment may handle the lid itself (see README).\n")
+	}
+}
+
 // rawFlagActive best-effort checks `systemd-inhibit --list` for a lidspeculum
 // lock by matching the WHO column EXACTLY (the first whitespace-separated field
 // of a row), rather than substring-matching the whole output, which would

@@ -42,18 +42,10 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-brews:
-  - name: lidspeculum
-    repository:
-      owner: NorthShoreSoftwareLabs
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/NorthShoreSoftwareLabs/lidspeculum"
-    description: "Keep your computer awake when the lid is closed"
-    license: "MIT"
-    test: |
-      system "#{bin}/lidspeculum", "version"
+# Homebrew: the formula is hand-maintained in NorthShoreSoftwareLabs/homebrew-tap.
+# GoReleaser's `brews` is deprecated in favor of macOS-only Homebrew casks, which
+# would drop Linux support, so we keep a cross-platform formula by hand instead.
+# See RELEASING.md for the template (it points at these release archives).
 
 scoops:
   - repository:

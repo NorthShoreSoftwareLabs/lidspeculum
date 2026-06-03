@@ -48,6 +48,10 @@ func pmsetSet(value string) error {
 	return c.Run()
 }
 
+// confirmKeeper is a no-op on macOS: pmset disablesleep is a synchronous,
+// directly-read flag, so there is nothing to confirm after the fact.
+func confirmKeeper(quiet bool) {}
+
 // engage flips the lid-close sleep setting off (machine stays awake).
 func engage() error { return pmsetSet("1") }
 
