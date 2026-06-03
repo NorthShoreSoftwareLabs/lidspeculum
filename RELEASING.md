@@ -1,49 +1,45 @@
 # Releasing lidspeculum
 
-Releases are automated with [GoReleaser](https://goreleaser.com) via
-`.github/workflows/release.yml`. Pushing a `vX.Y.Z` tag builds cross-platform
-binaries, publishes a GitHub Release, and updates the Scoop bucket so
-`scoop install` picks up the new version.
+Distribution is three repos:
 
-The Homebrew formula is maintained by hand in `NorthShoreSoftwareLabs/homebrew-tap`
-(GoReleaser's `brews` is deprecated in favor of macOS-only casks, which would
-drop Linux). After a release, update `Formula/lidspeculum.rb` to point at the new
-tag's `darwin`/`linux` archives and their sha256 from the release `checksums.txt`.
-A cross-platform formula downloads the prebuilt binary per OS/arch (on_macos /
-on_linux, on_arm / on_intel) and installs `bin.install "lidspeculum"`.
+- **lidspeculum** (this repo) produces a GitHub Release on every `vX.Y.Z` tag.
+  `.github/workflows/release.yml` runs GoReleaser to cross-compile the binaries,
+  write `checksums.txt`, and attach everything to the Release. It uses only the
+  workflow's built-in `GITHUB_TOKEN` — no secret to configure.
+- **NorthShoreSoftwareLabs/homebrew-tap** holds `Formula/lidspeculum.rb`
+  (`brew install NorthShoreSoftwareLabs/tap/lidspeculum`, macOS + Linux).
+- **NorthShoreSoftwareLabs/scoop-bucket** holds `bucket/lidspeculum.json`
+  (`scoop install lidspeculum`, Windows).
 
-## One-time setup
-
-1. Create two public repos under the `NorthShoreSoftwareLabs` account:
-   - `NorthShoreSoftwareLabs/homebrew-tap`
-   - `NorthShoreSoftwareLabs/scoop-bucket`
-
-2. Create a Personal Access Token (classic, `repo` scope, or a fine-grained
-   token with contents:write on both repos above). On `github.com/settings/tokens`.
-
-3. Add it to this repo as an Actions secret named `HOMEBREW_TAP_TOKEN`:
-   ```
-   gh secret set HOMEBREW_TAP_TOKEN --repo NorthShoreSoftwareLabs/lidspeculum
-   ```
-   (The built-in `GITHUB_TOKEN` can publish the Release but cannot push to the
-   tap/bucket repos, which is why a PAT is needed.)
+The two manifests are maintained by hand and point at the Release artifacts.
+GoReleaser does not push to them (its `brews` generator is deprecated in favor
+of macOS-only casks, which would drop Linux), so there is no cross-repo PAT.
 
 ## Cutting a release
 
-The version string is injected from the tag via ldflags, so there's nothing to
-bump by hand.
+The version string is injected from the tag via ldflags; nothing to bump by hand.
 
 1. Tag and push:
    ```
    git tag v0.1.0
    git push origin v0.1.0
    ```
-2. The Release workflow runs GoReleaser. When it finishes:
+2. Wait for the Release workflow to finish; it creates the GitHub Release with
+   the archives and `checksums.txt`.
+3. Update the Homebrew formula in `homebrew-tap`. It builds from source, so it
+   needs only the source-tarball sha256:
+   ```
+   curl -sL https://github.com/NorthShoreSoftwareLabs/lidspeculum/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
+   ```
+   Put that in `url`/`sha256` and bump the version.
+4. Update the Scoop manifest in `scoop-bucket` with the Windows zip hashes from
+   the Release `checksums.txt` (`lidspeculum_windows_amd64.zip`,
+   `lidspeculum_windows_arm64.zip`) and bump `version`.
+5. Verify:
    ```
    brew install NorthShoreSoftwareLabs/tap/lidspeculum
+   scoop bucket add NorthShoreSoftwareLabs https://github.com/NorthShoreSoftwareLabs/scoop-bucket && scoop install lidspeculum
    ```
-
-(Binaries built outside a tag — `go install`, snapshot builds — report `dev`.)
 
 ## Local dry run
 
@@ -53,5 +49,4 @@ With GoReleaser installed (`brew install goreleaser`):
 goreleaser release --snapshot --clean --skip=publish
 ```
 
-This builds everything into `dist/` without pushing anything, and validates the
-config.
+Builds everything into `dist/` without pushing, and validates the config.
