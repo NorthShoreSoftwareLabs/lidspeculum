@@ -16,6 +16,7 @@ type hold struct {
 	ExpiresAt int64  `json:"expires_at"`        // unix seconds, 0 if no deadline
 	Kind      string `json:"kind"`              // "hold" or "run"
 	Command   string `json:"command,omitempty"` // for kind=="run"
+	Display   bool   `json:"display,omitempty"` // also holding the display awake
 }
 
 // pidfileName is the file holding the single active hold record.

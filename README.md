@@ -12,10 +12,15 @@ hold and it stays in effect until you stop it.
 lidspeculum hold                 # keep awake until you press Ctrl-C
 lidspeculum hold --for 2h        # keep awake for a while, then auto-release
 lidspeculum hold --until 17:00   # keep awake until a wall-clock time today
+lidspeculum hold --display       # also keep the screen on, not just the system
 lidspeculum run make build       # keep awake only while a command runs
 lidspeculum status               # is a hold active? how do I stop it?
 lidspeculum stop                 # make the machine sleepable again
 ```
+
+By default a hold keeps the **system** awake but lets the **screen** sleep — the
+lid can shut and the machine stays up while the display powers off. Add
+`--display` (on `hold` or `run`) to hold the screen on as well.
 
 A hold is **resident**: the process stays running and keeps the machine awake
 until you stop it (Ctrl-C, `lidspeculum stop`, or a `--for`/`--until` deadline).
@@ -69,6 +74,16 @@ go install github.com/NorthShoreSoftwareLabs/lidspeculum@latest
 | Linux (systemd) | re-execs under `systemd-inhibit --what=handle-lid-switch:sleep` for the hold's lifetime | none |
 | Windows | power-scheme lid-close action set to "Do nothing" (`powercfg`), prior value saved and restored | elevated (Administrator) terminal |
 
+`--display` adds a second, independent lever that keeps the screen on for the
+hold's lifetime. It needs no extra elevation beyond what the lid lever already
+requires:
+
+| OS | `--display` mechanism |
+| --- | --- |
+| macOS | runs `caffeinate -d` as a child of the hold (released when the hold ends) |
+| Linux (systemd) | adds `idle` to the `systemd-inhibit --what` lock |
+| Windows | `SetThreadExecutionState(ES_CONTINUOUS \| ES_DISPLAY_REQUIRED)` for the hold's lifetime |
+
 On macOS and Windows the hold flips a system power setting, so starting one asks
 for elevation: `lidspeculum` calls `sudo` for you on macOS and prompts for your
 password; on Windows, run it from an elevated terminal. **Linux needs no root at
@@ -85,6 +100,11 @@ automatically when the hold process exits.
   handling it. `lidspeculum` prints a warning when it can't confirm the lock was
   taken. The lock is verified to work where logind owns the lid (servers,
   headless boxes, and DEs that defer to logind).
+- **`--display` on Linux desktops (GNOME, KDE):** the `idle` inhibitor stops
+  logind's idle timeout, but screen blanking on most graphical desktops is driven
+  by the compositor, not logind, so the panel may still blank. The flag is
+  reliable where logind owns the idle path; on a full desktop, set the screen
+  timeout in your DE if the display still sleeps.
 - **Windows must be English-language for now.** The prior lid setting is read by
   parsing `powercfg` output, whose labels are localized. On a non-English
   install `lidspeculum` refuses to engage rather than risk changing your setting

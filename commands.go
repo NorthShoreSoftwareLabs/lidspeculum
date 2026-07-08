@@ -64,6 +64,29 @@ var errHoldActive = errors.New("a hold is already active")
 // defending the single-release invariant even if a future call site is added.
 var releaseOnce sync.Once
 
+// stopDisplay, when non-nil, ends the optional display-awake assertion started by
+// startDisplayKeeper (--display). It is this process's own resource (a child
+// process on macOS, a pinned thread on Windows, a no-op on Linux), independent of
+// the shared lid flag, so release() tears it down unconditionally.
+var stopDisplay func()
+
+// startDisplayKeeper turns on the display-awake lever when --display was given.
+// Failure is non-fatal: the lid hold — the tool's core job — is already engaged,
+// so we warn and carry on rather than abandoning it.
+func startDisplayKeeper(keepDisplay, quiet bool) {
+	if !keepDisplay {
+		return
+	}
+	stop, err := engageDisplay()
+	if err != nil {
+		if !quiet {
+			fmt.Fprintln(os.Stderr, "lidspeculum: warning: couldn't keep the display awake:", err)
+		}
+		return
+	}
+	stopDisplay = stop
+}
+
 // release disengages the OS lever and removes the pidfile. It is safe to call
 // more than once (subsequent calls are no-ops via releaseOnce).
 //
@@ -84,6 +107,13 @@ var releaseOnce sync.Once
 // the pidfile.
 func release(quiet bool) {
 	releaseOnce.Do(func() {
+		// Stop our own display keeper first. It's this process's resource, not the
+		// shared lid flag, so we release it even if we've been superseded below.
+		if stopDisplay != nil {
+			stopDisplay()
+			stopDisplay = nil
+		}
+
 		// A corrupt pidfile is treated as "not clearly ours"; the conservative
 		// read below (cur == nil only on a clean absent file) keeps us from
 		// stomping a record we can't parse.
@@ -127,21 +157,36 @@ func deadline(forStr, untilStr string, now time.Time) (time.Time, error) {
 
 // holdStartLine builds the human start message for a hold. byUntil selects the
 // wall-clock phrasing (--until) over the relative-span phrasing (--for).
-func holdStartLine(now, expires time.Time, byUntil bool) string {
+// keepDisplay picks the trailing note about whether the screen is kept on too.
+func holdStartLine(now, expires time.Time, byUntil, keepDisplay bool) string {
+	var base string
 	if expires.IsZero() {
-		return "lidspeculum: holding awake until you press Ctrl-C (screen can still sleep)."
+		base = "lidspeculum: holding awake until you press Ctrl-C."
+	} else {
+		left := shortDur(expires.Sub(now))
+		if byUntil {
+			base = fmt.Sprintf("lidspeculum: holding awake until %s (%s). Press Ctrl-C to stop.",
+				expires.Format("15:04"), left)
+		} else {
+			base = fmt.Sprintf("lidspeculum: holding awake for %s, until %s. Press Ctrl-C to stop.",
+				left, expires.Format("15:04"))
+		}
 	}
-	left := shortDur(expires.Sub(now))
-	if byUntil {
-		return fmt.Sprintf("lidspeculum: holding awake until %s (%s). Press Ctrl-C to stop.",
-			expires.Format("15:04"), left)
+	return base + screenNote(keepDisplay)
+}
+
+// screenNote is the trailing sentence about the display: whether it is being
+// kept awake too, or — the default — how to make it stay on. Surfacing the flag
+// here is deliberate: "the screen still slept" is the most common surprise.
+func screenNote(keepDisplay bool) string {
+	if keepDisplay {
+		return " The screen is kept awake too."
 	}
-	return fmt.Sprintf("lidspeculum: holding awake for %s, until %s. Press Ctrl-C to stop.",
-		left, expires.Format("15:04"))
+	return " The screen can still sleep; pass --display to keep it on too."
 }
 
 // cmdHold runs a resident hold until Ctrl-C, a deadline, or a stop/term signal.
-func cmdHold(forStr, untilStr string, quiet bool) int {
+func cmdHold(forStr, untilStr string, quiet, keepDisplay bool) int {
 	now := time.Now()
 	expires, err := deadline(forStr, untilStr, now)
 	if err != nil {
@@ -150,7 +195,7 @@ func cmdHold(forStr, untilStr string, quiet bool) int {
 	}
 
 	// On Linux the first pass re-execs under systemd-inhibit and never returns.
-	if _, err := maybeReexec(); err != nil {
+	if _, err := maybeReexec(keepDisplay); err != nil {
 		fmt.Fprintln(os.Stderr, "lidspeculum:", err)
 		return 1
 	}
@@ -159,6 +204,7 @@ func cmdHold(forStr, untilStr string, quiet bool) int {
 		PID:       os.Getpid(),
 		StartedAt: now.Unix(),
 		Kind:      "hold",
+		Display:   keepDisplay,
 	}
 	if !expires.IsZero() {
 		h.ExpiresAt = expires.Unix()
@@ -176,9 +222,10 @@ func cmdHold(forStr, untilStr string, quiet bool) int {
 		fmt.Fprintln(os.Stderr, "lidspeculum:", err)
 		return 1
 	}
+	startDisplayKeeper(keepDisplay, quiet)
 
 	if !quiet {
-		fmt.Fprintln(os.Stderr, holdStartLine(now, expires, untilStr != ""))
+		fmt.Fprintln(os.Stderr, holdStartLine(now, expires, untilStr != "", keepDisplay))
 	}
 
 	// Best-effort confirmation that the keeper actually took hold (Linux only;
@@ -189,7 +236,7 @@ func cmdHold(forStr, untilStr string, quiet bool) int {
 }
 
 // cmdRun holds awake only while cmd runs, then exits with the command's code.
-func cmdRun(cmd []string, quiet bool) int {
+func cmdRun(cmd []string, quiet, keepDisplay bool) int {
 	if len(cmd) == 0 {
 		fmt.Fprintln(os.Stderr, "error: run needs a command\n       e.g. lidspeculum run make build")
 		return 2
@@ -202,7 +249,7 @@ func cmdRun(cmd []string, quiet bool) int {
 		return 1
 	}
 
-	if _, err := maybeReexec(); err != nil {
+	if _, err := maybeReexec(keepDisplay); err != nil {
 		fmt.Fprintln(os.Stderr, "lidspeculum:", err)
 		return 1
 	}
@@ -213,6 +260,7 @@ func cmdRun(cmd []string, quiet bool) int {
 		StartedAt: now.Unix(),
 		Kind:      "run",
 		Command:   strings.Join(cmd, " "),
+		Display:   keepDisplay,
 	}
 	if err := acquire(h); err != nil {
 		return acquireExit(err)
@@ -227,9 +275,10 @@ func cmdRun(cmd []string, quiet bool) int {
 		fmt.Fprintln(os.Stderr, "lidspeculum:", err)
 		return 1
 	}
+	startDisplayKeeper(keepDisplay, quiet)
 
 	if !quiet {
-		fmt.Fprintf(os.Stderr, "lidspeculum: holding awake while %q runs.\n", h.Command)
+		fmt.Fprintf(os.Stderr, "lidspeculum: holding awake while %q runs.%s\n", h.Command, screenNote(keepDisplay))
 	}
 
 	// Best-effort confirmation that the keeper actually took hold (Linux only;
@@ -336,14 +385,18 @@ func cmdStatus(asJSON bool) int {
 
 	if active {
 		started := time.Unix(h.StartedAt, 0).Format("15:04")
+		screen := ""
+		if h.Display {
+			screen = " (screen kept awake too)"
+		}
 		if h.ExpiresAt > 0 {
 			exp := time.Unix(h.ExpiresAt, 0)
 			left := shortDur(time.Until(exp))
-			fmt.Printf("lidspeculum: holding awake (pid %d), started %s, expires %s (%s left). Stop it with: lidspeculum stop\n",
-				h.PID, started, exp.Format("15:04"), left)
+			fmt.Printf("lidspeculum: holding awake (pid %d)%s, started %s, expires %s (%s left). Stop it with: lidspeculum stop\n",
+				h.PID, screen, started, exp.Format("15:04"), left)
 		} else {
-			fmt.Printf("lidspeculum: holding awake (pid %d), started %s, no deadline. Stop it with: lidspeculum stop\n",
-				h.PID, started)
+			fmt.Printf("lidspeculum: holding awake (pid %d)%s, started %s, no deadline. Stop it with: lidspeculum stop\n",
+				h.PID, screen, started)
 		}
 		return 0
 	}
@@ -364,6 +417,7 @@ func statusJSON(active, stranded bool, h *hold) int {
 		obj["kind"] = h.Kind
 		obj["started_at"] = h.StartedAt
 		obj["expires_at"] = h.ExpiresAt
+		obj["display"] = h.Display
 		if h.Kind == "run" && h.Command != "" {
 			obj["command"] = h.Command
 		}

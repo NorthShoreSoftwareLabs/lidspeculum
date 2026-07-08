@@ -33,9 +33,13 @@ USAGE
 
 COMMANDS
   hold      Hold the machine awake until Ctrl-C (or a timeout).
-            Flags: --for <duration>, --until <HH:MM>, -q/--quiet
+            Flags: --for <duration>, --until <HH:MM>, --display, -q/--quiet
   run       Hold awake only while the wrapped command runs; exits with its code.
             A leading -- is optional: lidspeculum run -- rsync -q ...
+            Flags: --display, -q/--quiet
+
+By default a hold keeps the SYSTEM awake but lets the screen sleep. Add --display
+to keep the screen on too.
   status    Report whether a hold is active and how to stop it (--json).
   stop      Make the machine sleepable again (ends any active hold).
   version   Print the version.
@@ -106,22 +110,25 @@ func runHoldCmd(args []string) int {
 	fs.SetOutput(os.Stderr)
 	forStr := fs.String("for", "", "hold for a duration (e.g. 90m, 1h30m, 45s, or seconds)")
 	untilStr := fs.String("until", "", "hold until a 24-hour clock time today (HH:MM)")
+	display := fs.Bool("display", false, "also keep the screen awake, not just the system")
 	quiet := quietFlags(fs)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `lidspeculum hold — keep the machine awake until you stop it.
 
 USAGE
-  lidspeculum hold [--for <duration> | --until <HH:MM>] [-q]
+  lidspeculum hold [--for <duration> | --until <HH:MM>] [--display] [-q]
 
 FLAGS
   --for <duration>   hold for 90m, 1h30m, 45s (a bare integer means seconds)
   --until <HH:MM>    hold until a 24-hour clock time today (errors if past)
+  --display          also keep the screen on (by default only the system is held)
   -q, --quiet        suppress the start/release lines
 
 EXAMPLES
   lidspeculum hold
   lidspeculum hold --for 2h
   lidspeculum hold --until 17:00
+  lidspeculum hold --display
 `)
 	}
 	if code, ok := parseResult(fs.Parse(args)); !ok {
@@ -131,32 +138,38 @@ EXAMPLES
 		fmt.Fprintf(os.Stderr, "error: hold takes no positional arguments (got %q)\n", fs.Arg(0))
 		return 2
 	}
-	return cmdHold(*forStr, *untilStr, *quiet)
+	return cmdHold(*forStr, *untilStr, *quiet, *display)
 }
 
 func runRunCmd(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	display := fs.Bool("display", false, "also keep the screen awake, not just the system")
 	quiet := quietFlags(fs)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `lidspeculum run — keep the machine awake only while a command runs.
 
 USAGE
-  lidspeculum run [-q] <cmd> [args...]
-  lidspeculum run [-q] -- <cmd> [args...]
+  lidspeculum run [--display] [-q] <cmd> [args...]
+  lidspeculum run [--display] [-q] -- <cmd> [args...]
 
 The optional -- separates lidspeculum's flags from the command. lidspeculum
 exits with the wrapped command's exit code.
 
+FLAGS
+  --display    also keep the screen on (by default only the system is held)
+  -q, --quiet  suppress the start/release lines
+
 EXAMPLES
   lidspeculum run make build
   lidspeculum run -- rsync -q src/ dst/
+  lidspeculum run --display make build
 `)
 	}
 	if code, ok := parseResult(fs.Parse(args)); !ok {
 		return code
 	}
-	return cmdRun(fs.Args(), *quiet)
+	return cmdRun(fs.Args(), *quiet, *display)
 }
 
 func runStatusCmd(args []string) int {

@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -29,7 +30,8 @@ func preflightKeeper() error { return nil }
 
 // maybeReexec is a no-op on macOS; there is no inhibitor process to re-exec
 // under. It returns (false, nil) meaning "did not re-exec; continue here".
-func maybeReexec() (bool, error) { return false, nil }
+// keepDisplay is handled at runtime by engageDisplay, not here.
+func maybeReexec(keepDisplay bool) (bool, error) { return false, nil }
 
 // announceElevation warns the user that engaging will prompt for a password.
 func announceElevation(quiet bool) {
@@ -51,6 +53,23 @@ func pmsetSet(value string) error {
 // confirmKeeper is a no-op on macOS: pmset disablesleep is a synchronous,
 // directly-read flag, so there is nothing to confirm after the fact.
 func confirmKeeper(quiet bool) {}
+
+// engageDisplay keeps the display awake for the hold's lifetime, in addition to
+// the lid lever. It shells out to `caffeinate -d`, the OS's own display-sleep
+// inhibitor; unlike the lid setting this needs no elevation. `-w <our pid>` makes
+// caffeinate exit if we die without cleaning up, so a display assertion is never
+// stranded. It returns a stop function that ends the assertion promptly on a
+// clean release.
+func engageDisplay() (func(), error) {
+	c := exec.Command("caffeinate", "-d", "-w", strconv.Itoa(os.Getpid()))
+	if err := c.Start(); err != nil {
+		return nil, err
+	}
+	return func() {
+		_ = c.Process.Kill()
+		_ = c.Wait()
+	}, nil
+}
 
 // engage flips the lid-close sleep setting off (machine stays awake).
 func engage() error { return pmsetSet("1") }

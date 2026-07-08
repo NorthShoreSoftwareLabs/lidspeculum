@@ -56,7 +56,12 @@ func preflightKeeper() error {
 // maybeReexec replaces this process with one running under systemd-inhibit,
 // unless we are already the inhibited inner process. It returns (true, nil) only
 // on an error path that can't reach Exec; on success syscall.Exec never returns.
-func maybeReexec() (bool, error) {
+//
+// keepDisplay adds logind's "idle" inhibitor to the lock so an idle timeout can't
+// put the machine to sleep either. Note that screen BLANKING on most graphical
+// desktops (GNOME, KDE) is driven by the compositor, not logind, so the idle lock
+// does not always keep the panel lit there — see engageDisplay and the README.
+func maybeReexec(keepDisplay bool) (bool, error) {
 	if os.Getenv(inhibitedEnv) == "1" {
 		return false, nil // already inside the inhibitor; continue here
 	}
@@ -72,10 +77,15 @@ func maybeReexec() (bool, error) {
 		return false, errNoInhibit
 	}
 
+	what := "handle-lid-switch:sleep"
+	if keepDisplay {
+		what += ":idle"
+	}
+
 	// Build: systemd-inhibit <opts> <self> <original args after program name>
 	argv := []string{
 		"systemd-inhibit",
-		"--what=handle-lid-switch:sleep",
+		"--what=" + what,
 		"--who=lidspeculum",
 		"--why=lidspeculum hold",
 		"--mode=block",
@@ -98,6 +108,11 @@ func announceElevation(quiet bool) {}
 // outer systemd-inhibit process for the inner process's whole lifetime.
 func engage() error    { return nil }
 func disengage() error { return nil }
+
+// engageDisplay is a no-op on Linux: the display (idle) inhibitor is folded into
+// the systemd-inhibit lock at re-exec time (see maybeReexec), so there is no
+// separate runtime handle to hold or release here.
+func engageDisplay() (func(), error) { return func() {}, nil }
 
 // confirmKeeper does a best-effort check, once a hold has engaged, that the
 // inhibitor lock is actually held. It greps `systemd-inhibit --list` (via

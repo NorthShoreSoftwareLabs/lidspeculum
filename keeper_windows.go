@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -43,8 +44,51 @@ func stateBaseDir() (string, error) {
 func preflightKeeper() error { return nil }
 
 // maybeReexec is a no-op on Windows; there is no inhibitor process to re-exec
-// under.
-func maybeReexec() (bool, error) { return false, nil }
+// under. keepDisplay is handled at runtime by engageDisplay, not here.
+func maybeReexec(keepDisplay bool) (bool, error) { return false, nil }
+
+// SetThreadExecutionState flags. ES_CONTINUOUS makes the state persist until the
+// next call (rather than resetting after one idle-timer cycle); ES_DISPLAY_REQUIRED
+// keeps the display on. The state is scoped to the calling OS thread and is
+// cleared when that thread exits, so engageDisplay pins a dedicated thread.
+const (
+	esContinuous      = 0x80000000
+	esDisplayRequired = 0x00000002
+)
+
+// kernel32 is declared in proc_windows.go; reuse it here for the display flag.
+var procSetThreadExecState = kernel32.NewProc("SetThreadExecutionState")
+
+// engageDisplay keeps the display awake for the hold's lifetime. Unlike the lid
+// setting (powercfg, which needs an elevated shell), the display request is a
+// per-thread flag that needs no elevation. Because the flag is cleared when the
+// setting thread exits, we hold it on a dedicated goroutine locked to its OS
+// thread; the returned stop function releases the flag and lets that thread go.
+func engageDisplay() (func(), error) {
+	done := make(chan struct{})
+	ready := make(chan error, 1)
+	go func() {
+		// Pin this goroutine to one OS thread for its whole life so the execution
+		// state we set is the state that stays in force (and is cleared) here.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		r, _, err := procSetThreadExecState.Call(uintptr(esContinuous | esDisplayRequired))
+		if r == 0 {
+			ready <- fmt.Errorf("SetThreadExecutionState failed: %w", err)
+			return
+		}
+		ready <- nil
+
+		<-done
+		// Clear the display requirement (ES_CONTINUOUS with no other flags).
+		procSetThreadExecState.Call(uintptr(esContinuous))
+	}()
+	if err := <-ready; err != nil {
+		return nil, err
+	}
+	return func() { close(done) }, nil
+}
 
 // announceElevation warns the user that engaging needs an elevated shell.
 // Windows does not prompt; it requires an already-elevated (Administrator)
