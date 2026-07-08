@@ -50,8 +50,17 @@ stranded state.
 ### Homebrew (macOS, Linux)
 
 ```
-brew install NorthShoreSoftwareLabs/tap/lidspeculum
+brew tap NorthShoreSoftwareLabs/tap
+brew trust NorthShoreSoftwareLabs/tap
+brew install lidspeculum
 ```
+
+Recent Homebrew requires you to trust a non-official tap once before it will load
+the formula (a tap runs code on install, so Homebrew makes you opt in). The
+`brew trust` line above is that one-time step; you won't need it again on the same
+machine, and `brew upgrade lidspeculum` works normally afterwards. If your
+Homebrew is older and doesn't enforce this, the `brew trust` line is a harmless
+no-op and `brew install NorthShoreSoftwareLabs/tap/lidspeculum` also works.
 
 ### Scoop (Windows)
 
@@ -60,11 +69,31 @@ scoop bucket add NorthShoreSoftwareLabs https://github.com/NorthShoreSoftwareLab
 scoop install lidspeculum
 ```
 
-### From source
+### Without a tap (no trust step)
+
+If you'd rather not trust the tap, install straight from a GitHub Release or
+build with Go. Neither needs Homebrew, and neither prompts for trust; the
+tradeoff is no `brew upgrade` auto-updates.
+
+**Prebuilt binary.** Grab the archive for your OS/arch from the
+[latest release](https://github.com/NorthShoreSoftwareLabs/lidspeculum/releases/latest),
+then put it on your `PATH`:
+
+```
+# macOS arm64 example; swap in your platform's asset name
+curl -sL https://github.com/NorthShoreSoftwareLabs/lidspeculum/releases/latest/download/lidspeculum_darwin_arm64.tar.gz \
+  | tar -xz
+sudo mv lidspeculum /usr/local/bin/
+```
+
+**From source (Go):**
 
 ```
 go install github.com/NorthShoreSoftwareLabs/lidspeculum@latest
 ```
+
+`go install` drops the binary in `$(go env GOPATH)/bin` (usually `~/go/bin`);
+make sure that directory is on your `PATH`.
 
 **macOS, after installing:** holds prompt for your password (they change a
 system power setting via `sudo`). To stop the prompts, run `lidspeculum authorize`
