@@ -103,6 +103,19 @@ func announceElevation(quiet bool) {
 // powercfg index, so there is nothing to confirm after the fact.
 func confirmKeeper(quiet bool) {}
 
+// cmdAuthorize / cmdRevoke are macOS conveniences. Windows gates the lid setting
+// behind an elevated (Administrator) terminal / UAC rather than a password, so
+// there is no passwordless rule to install or remove here.
+func cmdAuthorize(assumeYes bool) int {
+	fmt.Fprintln(os.Stderr, "lidspeculum: authorize is a macOS-only convenience. On Windows, run lidspeculum from an elevated (Administrator) terminal; there is no passwordless equivalent to install.")
+	return 0
+}
+
+func cmdRevoke(assumeYes bool) int {
+	fmt.Fprintln(os.Stderr, "lidspeculum: nothing to revoke on Windows.")
+	return 0
+}
+
 func powercfg(args ...string) error {
 	c := exec.Command("powercfg", args...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr

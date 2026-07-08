@@ -66,6 +66,10 @@ scoop install lidspeculum
 go install github.com/NorthShoreSoftwareLabs/lidspeculum@latest
 ```
 
+**macOS, after installing:** holds prompt for your password (they change a
+system power setting via `sudo`). To stop the prompts, run `lidspeculum authorize`
+once — see [Skip the password prompt](#skip-the-password-prompt-macos).
+
 ## How it works
 
 | OS | Mechanism | Elevation |
@@ -89,6 +93,32 @@ for elevation: `lidspeculum` calls `sudo` for you on macOS and prompts for your
 password; on Windows, run it from an elevated terminal. **Linux needs no root at
 all** — the hold is kept alive by a `systemd-inhibit` lock that releases
 automatically when the hold process exits.
+
+### Skip the password prompt (macOS)
+
+On macOS every hold runs `sudo pmset` to flip the lid-close setting, so you get a
+password prompt when a hold **starts** and again when it **ends** (once the sudo
+credential cache expires). If you don't want to type your password to start or
+stop holds, run this once:
+
+```
+lidspeculum authorize      # stop the prompts (asks for your password once)
+lidspeculum revoke         # undo it; prompts come back
+```
+
+`authorize` installs a drop-in at `/etc/sudoers.d/lidspeculum` granting
+passwordless `sudo` for **only** the two exact commands lidspeculum runs:
+
+```
+<you> ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 1, /usr/bin/pmset -a disablesleep 0
+```
+
+Nothing else gets passwordless `sudo`. The command prints the exact rule and asks
+you to confirm before installing, and it validates the file with `visudo` before
+it goes live (a malformed `sudoers` file can lock you out of `sudo`, so the check
+is mandatory and it rolls back on any problem). This is a macOS-only convenience;
+Linux needs no elevation, and Windows uses an elevated terminal rather than a
+password.
 
 ## Caveats
 

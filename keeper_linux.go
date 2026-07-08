@@ -114,6 +114,18 @@ func disengage() error { return nil }
 // separate runtime handle to hold or release here.
 func engageDisplay() (func(), error) { return func() {}, nil }
 
+// cmdAuthorize / cmdRevoke are macOS conveniences. Linux holds take a
+// systemd-inhibit lock and need no elevation, so there is no password to remove.
+func cmdAuthorize(assumeYes bool) int {
+	os.Stderr.WriteString("lidspeculum: authorize is a macOS-only convenience; Linux holds need no elevation, so there's no password to remove.\n")
+	return 0
+}
+
+func cmdRevoke(assumeYes bool) int {
+	os.Stderr.WriteString("lidspeculum: nothing to revoke; Linux holds never require a password.\n")
+	return 0
+}
+
 // confirmKeeper does a best-effort check, once a hold has engaged, that the
 // inhibitor lock is actually held. It greps `systemd-inhibit --list` (via
 // rawFlagActive) for our who=lidspeculum row; if that row is absent it prints a

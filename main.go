@@ -42,11 +42,14 @@ By default a hold keeps the SYSTEM awake but lets the screen sleep. Add --displa
 to keep the screen on too.
   status    Report whether a hold is active and how to stop it (--json).
   stop      Make the machine sleepable again (ends any active hold).
+  authorize (macOS) Stop holds prompting for your password (one-time setup).
+  revoke    (macOS) Undo authorize; holds prompt for a password again.
   version   Print the version.
   help      Show this help.
 
 Starting a hold changes a system power setting, so it needs elevation:
-  macOS    prompts for your password (sudo)
+  macOS    prompts for your password (sudo); run "lidspeculum authorize" once
+           to stop the prompts
   Windows  must be run from an elevated (Administrator) terminal — no prompt
   Linux    needs no elevation
 `)
@@ -71,6 +74,10 @@ func run(args []string) int {
 		return runStatusCmd(args[1:])
 	case "stop":
 		return cmdStop()
+	case "authorize":
+		return runAuthorizeCmd(args[1:])
+	case "revoke":
+		return runRevokeCmd(args[1:])
 	case "version", "-v", "--version":
 		fmt.Println("lidspeculum " + version)
 		return 0
@@ -170,6 +177,63 @@ EXAMPLES
 		return code
 	}
 	return cmdRun(fs.Args(), *quiet, *display)
+}
+
+// yesFlag registers both -y and --yes on a FlagSet, returning a pointer to the
+// shared bool used to skip the confirmation prompt.
+func yesFlag(fs *flag.FlagSet) *bool {
+	y := fs.Bool("yes", false, "skip the confirmation prompt")
+	fs.BoolVar(y, "y", false, "skip the confirmation prompt (shorthand)")
+	return y
+}
+
+func runAuthorizeCmd(args []string) int {
+	fs := flag.NewFlagSet("authorize", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	yes := yesFlag(fs)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `lidspeculum authorize — stop holds prompting for your password (macOS).
+
+Installs a narrowly-scoped sudoers rule granting passwordless sudo for ONLY the
+two pmset commands lidspeculum uses to toggle the lid-close setting. It shows the
+exact rule and asks you to confirm before installing (needs your password once).
+
+USAGE
+  lidspeculum authorize [-y]
+
+FLAGS
+  -y, --yes    skip the confirmation prompt
+
+Undo with: lidspeculum revoke
+`)
+	}
+	if code, ok := parseResult(fs.Parse(args)); !ok {
+		return code
+	}
+	return cmdAuthorize(*yes)
+}
+
+func runRevokeCmd(args []string) int {
+	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	yes := yesFlag(fs)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `lidspeculum revoke — undo authorize (macOS).
+
+Removes the sudoers rule installed by `+"`authorize`"+`, so holds prompt for your
+password again.
+
+USAGE
+  lidspeculum revoke [-y]
+
+FLAGS
+  -y, --yes    skip the confirmation prompt
+`)
+	}
+	if code, ok := parseResult(fs.Parse(args)); !ok {
+		return code
+	}
+	return cmdRevoke(*yes)
 }
 
 func runStatusCmd(args []string) int {
